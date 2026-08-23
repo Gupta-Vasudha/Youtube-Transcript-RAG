@@ -1,0 +1,27 @@
+# Secrets
+.env
+.env.*
+.streamlit/secrets.toml
+
+# Python virtual environment
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# FAISS cache
+cache/
+
+# Hugging Face / sentence-transformers local model cache
+.cache/
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/
