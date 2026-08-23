@@ -1,2 +1,4 @@
 GROQ_API_KEY = "your_actual_google_key"
 HUGGINGFACEHUB_API_TOKEN = "your_actual_hf_token"
+WEBSHARE_PROXY_USERNAME = "your_username_here"
+WEBSHARE_PROXY_PASSWORD = "your_password_here"
