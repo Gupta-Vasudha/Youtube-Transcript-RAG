@@ -2,13 +2,12 @@ streamlit
 langchain
 langchain-core
 langchain-text-splitters
+langchain-groq
 langchain-huggingface
 langchain-community
 faiss-cpu
-youtube-transcript-api
+youtube-transcript-api >=1.0.0
 python-dotenv
 sentence-transformers
-langchain-classic
-langchain-groq
 groq
 huggingface-hub
