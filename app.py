@@ -1,27 +1,20 @@
 import os
 import logging
-
 import streamlit as st
 from dotenv import load_dotenv
 
-from youtube_transcript_api import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
-
-
 load_dotenv()
-
-for _key in ("GROQ_API_KEY", "HUGGINGFACEHUB_API_TOKEN"):
+for _key in ("GROQ_API_KEY", "HUGGINGFACEHUB_API_TOKEN", "WEBSHARE_PROXY_USERNAME", "WEBSHARE_PROXY_PASSWORD"):
     if _key not in os.environ and _key in st.secrets:
         os.environ[_key] = st.secrets[_key]
+        
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+from youtube_transcript_api import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable, RequestBlocked, IpBlocked
  
 import model
 
 st.set_page_config(page_title="Chat with your Youtube video", page_icon="🎬", layout="wide")
-
 
 def init_session_state():
     defaults = {"video_index": None, "chat_history": []}
@@ -54,6 +47,11 @@ def process_video(url_or_id: str):
         progress_bar.empty()
         st.error("This video is unavailable.")
         return
+    except (RequestBlocked, IpBlocked):
+        progress_bar.empty()
+        st.error(
+            "Server's IP request is being blocked by Youtube this app needs a proxy configured (WEBSHARE_PROXY_USERNAME / WEBSHARE_PROXY_PASSWORD) to work around it. This cannot be fixed by retrying." )
+        return
     except RuntimeError as e:
         progress_bar.empty()
         st.error(str(e))
@@ -76,13 +74,13 @@ def main():
     init_session_state()
 
     st.title("Interact with your Youtube Video")
-    st.caption("Paste a YouTube URL or video ID at the side bar")
+    st.caption("Paste a YouTube URL or video ID at the side bar and press process.")
 
     with st.sidebar:
         st.header("Load a video")
         url_or_id = st.text_input(
             "YouTube URL or video ID",
-            placeholder="https://www.youtube.com/watch?v=... or Gfr50f6ZBvo",
+            placeholder="https://www.youtube.com/watch?v=...",
         )
         if st.button("Process video", type="primary", use_container_width=True):
             if url_or_id.strip():
