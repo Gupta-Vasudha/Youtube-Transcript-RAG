@@ -22,6 +22,7 @@ from youtube_transcript_api import (
     NoTranscriptFound,
     VideoUnavailable,
 )
+from youtube_transcript_api.proxies import WebshareProxyConfig
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +77,31 @@ def _get_groq_api_key() -> str:
     return key
 
 @lru_cache(maxsize=1)
+def get_youtube_api() -> YouTubeTranscriptApi:
+    """Build the YouTubeTranscriptApi client, routed through a Webshare proxy if WEBSHARE_PROXY_USERNAME/WEBSHARE_PROXY_PASSWORD are set."""
+
+    proxy_username = os.getenv("WEBSHARE_PROXY_USERNAME")
+    proxy_password = os.getenv("WEBSHARE_PROXY_PASSWORD")
+ 
+    if proxy_username and proxy_password:
+        logger.info("Using Webshare proxy for YouTube transcript requests.")
+        return YouTubeTranscriptApi(
+            proxy_config=WebshareProxyConfig(
+                proxy_username=proxy_username,
+                proxy_password=proxy_password,
+            )
+        )
+ 
+    logger.info("No proxy configured; connecting to YouTube directly.")
+    return YouTubeTranscriptApi()
+ 
+@lru_cache(maxsize=1)
 def get_llm():
     return ChatGroq(model_name=LLM_MODEL,temperature=0.3,api_key=_get_groq_api_key())
 
 @lru_cache(maxsize=1)
 def get_classifier_llm():
-    """A separate, temperature-0 instance used only for quick yes/no style classification calls (deciding whether a question needs whole-video context). Kept apart from get_llm() so the main QA/summarization model keeps its more creative temperature while classification stays deterministic."""
+    """A temperature-0 instance used only for quick yes/no style classification calls (deciding whether a question needs whole-video context)"""
     return ChatGroq(model_name=LLM_MODEL, temperature=0.0, api_key=_get_groq_api_key())
  
 @lru_cache(maxsize=1)
@@ -159,13 +179,11 @@ def fetch_transcript_text(video_id: str,llm,progress_callback=None) -> tuple[str
 
     logger.info(
         "%s: transcript language=%s (%s), translating via Groq.", video_id, original_lang, "manual" if transcript in manual else "auto-generated",)
-
     _report(progress_callback, 0.08, f"Translating from {language_name(original_lang)} using Groq...")
-
+    
     translated_transcript = llm_translate_long_text(original_transcript,llm,progress_callback)
 
     _report(progress_callback,0.20,"Transcript translated using Groq.")
-
     return ( original_transcript, translated_transcript, original_lang )
 
 # Groq translation fallback
@@ -229,13 +247,11 @@ def load_cached_index(video_id: str,embeddings) -> tuple[FAISS,list,str,str,str]
         if (not original_transcript or not translated_transcript):
             logger.warning("%s: cached transcript fields are empty, rebuilding.", video_id)
             return None
-
         return ( vector_store, chunks, original_lang, original_transcript, translated_transcript )
 
     except Exception as e:
         logger.warning("%s: failed to load cache (%s), rebuilding.", video_id, e)
         return None
-
 
 def save_index_to_cache(video_id: str,vector_store: FAISS,chunks: list,original_lang: str, original_transcript: str,translated_transcript: str) -> None:
 
@@ -253,25 +269,23 @@ def build_vector_store(transcript_text: str,embeddings,progress_callback=None) -
     _report(progress_callback,0.22,"Splitting transcript into chunks...")
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE,chunk_overlap=CHUNK_OVERLAP)
-
     chunks = splitter.create_documents([transcript_text])
     texts = [c.page_content for c in chunks]
     metadatas = [ c.metadata for c in chunks]
 
     total = len(texts)
+    
     all_embeddings = []
-
     for i in range(0,total,EMBED_BATCH_SIZE):
         batch = texts[i:i + EMBED_BATCH_SIZE]
         batch_embeddings = _call_with_retries(embeddings.embed_documents, batch)
         all_embeddings.extend(batch_embeddings)
         done = i + len(batch)
         fraction = (0.25  + 0.60 * ( done / total ) )
-        _report(progress_callback,fraction,f"Embedding chunks... "f"{done}/{total}")
-
+        _report(progress_callback,fraction,f"Embedding chunks... ")
     _report(progress_callback,0.87,"Building vector index...")
+    
     text_embeddings = list(zip(texts,all_embeddings) )
-
     vector_store = FAISS.from_embeddings(text_embeddings,embeddings,metadatas=metadatas)
     return (vector_store,chunks)
 
@@ -280,7 +294,6 @@ def build_vector_store(transcript_text: str,embeddings,progress_callback=None) -
 def build_retriever(vector_store: FAISS):
     return vector_store.as_retriever(
         search_type="similarity", search_kwargs={"k": RETRIEVER_K})
-
 
 def format_docs_with_budget(docs,max_chars: int = MAX_CONTEXT_CHARS) -> str:
     """Join retrieved chunks into one context string, deduping repeats and truncating once the char budget is hit."""
@@ -371,8 +384,7 @@ def needs_full_video_context(question: str) -> bool:
  
  
 def map_reduce_summarize(question:str, chunks,llm) -> str:
-    """Answer `question` using the ENTIRE transcript via a map-reduce pass:extract relevant details from each chunk (map), then combine them into one direct answer (reduce). Despite the name, this is not limited to literal 'summarize' requests — it's the general full-video answering path, used for anything needs_full_video_context() flags as needing the whole transcript (enumerations, counts, full summaries, etc.)."""
-
+    """Answer `question` using the ENTIRE transcript via a map-reduce pass:extract relevant details from each chunk (map), then combine them into one direct answer (reduce)."""
     splitter = RecursiveCharacterTextSplitter(chunk_size=MAP_REDUCE_BATCH_CHARS, chunk_overlap=0)
 
     full_text = "\n\n".join( c.page_content for c in chunks)
@@ -427,12 +439,10 @@ def load_or_build_video(url_or_id: str, progress_callback=None) -> VideoIndex:
         save_index_to_cache(
             video_id, vector_store, chunks, original_lang, original_transcript,translated_transcript)
         from_cache = False
-
     _report(progress_callback,0.93,"Setting up retriever...")
 
     retriever = build_retriever( vector_store )
     qa_chain = build_qa_chain(retriever, llm, original_lang)
-
     _report(progress_callback, 1.0,"Ready.")
 
     return VideoIndex(
