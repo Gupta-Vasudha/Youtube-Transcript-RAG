@@ -143,7 +143,7 @@ def extract_video_id(raw: str) -> str | None:
 # Step 1 — Transcript fetch + translation
 def fetch_transcript_text(video_id: str,llm,progress_callback=None) -> tuple[str, str, str]:
 
-    api = YouTubeTranscriptApi()
+    api = get_youtube_api()
     transcript_list = _call_with_retries(
         api.list, video_id, non_retryable=(TranscriptsDisabled, VideoUnavailable),)
     _report( progress_callback, 0.05, "Fetching transcript...")
